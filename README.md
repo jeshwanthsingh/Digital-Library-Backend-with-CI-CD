@@ -31,7 +31,7 @@ The Digital Library Backend powers a university-scale online repository with rol
 ---
 
 ## 📐 Architecture
-![Architecture Diagram](docs/architecture.png)
+![Architecture Diagram](docs/digital_library_architecture_clean.png)
 
 **Flow:**
 1. User sends request → API Gateway (Nginx)  
