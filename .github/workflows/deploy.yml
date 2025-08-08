@@ -1,0 +1,178 @@
+# .github/workflows/deploy.yml
+name: Test, Build, and Deploy (Non-Docker)
+
+on:
+  push:
+    branches: [ main ] # Trigger only on pushes to main
+  pull_request:
+    branches: [ main ] # Also trigger on PRs to main for testing
+
+jobs:
+  test:
+    # Runs tests on pushes and PRs to main
+    name: Run Backend Tests
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11' # Match your project's Python version
+
+    - name: Install dependencies (including dev/test)
+      run: |
+        python -m pip install --upgrade pip
+        # Install all dependencies needed for testing
+        # Ensure requirements.txt is at the root or adjust path
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+    - name: Create dummy frontend dist/assets for tests
+      # This path assumes your Frontend source is at application/Frontend
+      # And your tests might expect some output structure. Adjust if needed.
+      working-directory: ${{ github.workspace }}/application/Frontend
+      run: mkdir -p dist/assets
+
+    - name: Run tests
+      run: |
+        pytest # Add options if needed, e.g., pytest tests/
+
+  build_frontend:
+    # Builds frontend on pushes and PRs to main
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18' # Match your project's Node version
+
+      - name: Install Frontend Dependencies
+        working-directory: ./application/Frontend # Specify working directory
+        run: npm install
+
+      - name: Build Frontend
+        working-directory: ./application/Frontend # Specify working directory
+        run: npm run build # This should create the 'dist' folder
+
+      - name: Upload Frontend Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: application/Frontend/dist/ # Upload the contents of dist
+
+  deploy:
+    # Runs deployment only on push to main, after tests and build succeed
+    name: Deploy to Server
+    needs: [test, build_frontend] # Depends on successful test and build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' # Only deploy on merge/push to main
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Frontend Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          # Download to a directory that will be included in the tarball
+          path: ./frontend-dist-downloaded # Changed path to avoid potential naming conflicts before tar
+
+      - name: Create Deployment Package
+        run: |
+          # Package backend code, requirements, deploy script, and built frontend
+          # Exclude unnecessary files/dirs like .git, myenv, *.pyc, __pycache__, Frontend source etc.
+          # Ensure frontend-dist-downloaded/ is correctly included. The tar command creates frontend-dist/ inside the archive from frontend-dist-downloaded/
+          tar --exclude='.git' \
+              --exclude='myenv' \
+              --exclude='*.pyc' \
+              --exclude='__pycache__' \
+              --exclude='application/Frontend' \
+              --exclude='db' \
+              --exclude='logs' \
+              --transform 's|^frontend-dist-downloaded/|frontend-dist/|' \
+              -czf deployment_package.tar.gz \
+              application/ \
+              requirements.txt \
+              scripts/deploy.sh \
+              frontend-dist-downloaded/
+          ls -lh deployment_package.tar.gz
+
+      - name: Create Deploy Directory on Server if it doesn't exist
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -e
+            SECRET_DEPLOY_PATH_VALUE="${{ secrets.DEPLOY_PATH }}"
+            # Default to /home/ubuntu/agora_app if DEPLOY_PATH secret is not set
+            TARGET_DEPLOY_PATH="${SECRET_DEPLOY_PATH_VALUE:-/home/${{ secrets.SERVER_USER }}/agora_app}"
+            echo "Ensuring directory ${TARGET_DEPLOY_PATH} exists..."
+            mkdir -p "${TARGET_DEPLOY_PATH}"
+            echo "Directory ${TARGET_DEPLOY_PATH} is ready."
+
+      - name: Transfer Package to Server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "deployment_package.tar.gz"
+          # Use the same logic for DEPLOY_PATH as in the directory creation step
+          target: ${{ secrets.DEPLOY_PATH || format('/home/{0}/agora_app', secrets.SERVER_USER) }}
+
+      - name: Execute Deployment Script on Server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          # Pass GitHub secrets as environment variables to the script execution environment
+          # These will be inherited by deploy.sh
+          script: |
+            set -e # Exit on error
+            
+            # Determine the deployment path on the server
+            # Uses secrets.DEPLOY_PATH if set, otherwise defaults to /home/YOUR_USER/agora_app
+            RAW_DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
+            # Ensure SERVER_USER is used in the default path if DEPLOY_PATH is not set
+            DEPLOY_PATH="${RAW_DEPLOY_PATH:-/home/${{ secrets.SERVER_USER }}/agora_app}"
+            
+            echo "Deploying in $DEPLOY_PATH"
+            cd "$DEPLOY_PATH" # Navigate to the deployment directory
+            
+            echo "Extracting package..."
+            # Extract the tarball in the current directory ($DEPLOY_PATH)
+            tar -xzf deployment_package.tar.gz
+            
+            echo "Running deployment script..."
+            chmod +x scripts/deploy.sh # Ensure deploy.sh is executable
+            
+            # Export GitHub secrets as environment variables so deploy.sh can access them
+            # These secrets should be configured in your GitHub repository's settings
+            export DB_HOST="${{ secrets.DB_HOST }}"
+            export DB_PORT="${{ secrets.DB_PORT }}"
+            export DB_USER="${{ secrets.DB_USER }}"
+            export DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
+            export DB_NAME="${{ secrets.DB_NAME }}"
+            # Add any other secrets your application or deploy.sh script needs
+            # For example:
+            export SECRET_KEY="${{ secrets.SECRET_KEY }}"
+            # export SOME_API_TOKEN="${{ secrets.SOME_API_TOKEN }}"
+            
+            # Execute the deployment script
+            # It will inherit the environment variables exported above
+            ./scripts/deploy.sh 
+            
+            echo "Cleaning up package..."
+            rm deployment_package.tar.gz # Remove the tarball after extraction and deployment
+            
+            echo "Deployment script finished."

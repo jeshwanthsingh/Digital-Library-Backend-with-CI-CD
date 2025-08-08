@@ -1,0 +1,9 @@
+# Development and Testing Requirements for Agora Marketplace
+
+# Include base application requirements
+-r requirements.txt
+
+# Testing specific dependencies
+pytest
+requests
+httpx

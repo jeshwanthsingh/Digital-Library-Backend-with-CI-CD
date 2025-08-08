@@ -1,0 +1,27 @@
+# Agora Marketplace Backend Requirements
+# Core Dependencies
+fastapi==0.115.8
+uvicorn==0.34.0
+SQLAlchemy==2.0.38
+pymysql==1.1.1
+python-dotenv==1.0.1
+gunicorn==23.0.0
+
+# API and Web
+pydantic==2.10.6
+starlette==0.45.3
+Jinja2==3.1.5
+
+# Utils
+typing_extensions==4.12.2
+annotated-types==0.7.0
+
+# Image Processing
+Pillow==10.4.0 # Using version 10.4.0 as 10.5.0 was not found
+
+# Authentication & Security
+passlib[bcrypt]==1.7.4
+python-jose==3.3.0
+bcrypt==3.2.0 # Explicitly pin bcrypt for passlib 1.7.4 compatibility
+
+python-multipart==0.0.9

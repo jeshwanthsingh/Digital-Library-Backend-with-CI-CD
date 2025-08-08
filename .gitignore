@@ -1,0 +1,35 @@
+# Build artifacts
+node_modules/
+__pycache__/
+*.py[cod]
+dist/
+build/
+
+# Environment
+myenv/
+venv/
+.env*
+!.env.example
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+access_log
+error_log
+
+# SvelteKit & Vite build files
+.svelte-kit/
+.vite/
+/myenv/
