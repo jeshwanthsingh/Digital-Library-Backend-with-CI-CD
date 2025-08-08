@@ -1,5 +1,5 @@
 # 📚 Digital Library Backend with CI/CD
-> High-availability document search & delivery platform for 25K+ users, built with FastAPI, PostgreSQL, and AWS.
+> High-availability document search & delivery platform, built with FastAPI, PostgreSQL, and AWS.
 
 ![Demo GIF](docs/demo.gif)
 
